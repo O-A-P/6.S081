@@ -6,15 +6,16 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "sysinfo.h"
 
 uint64
 sys_exit(void)
 {
   int n;
-  if(argint(0, &n) < 0)
+  if (argint(0, &n) < 0)
     return -1;
   exit(n);
-  return 0;  // not reached
+  return 0; // not reached
 }
 
 uint64
@@ -33,7 +34,7 @@ uint64
 sys_wait(void)
 {
   uint64 p;
-  if(argaddr(0, &p) < 0)
+  if (argaddr(0, &p) < 0)
     return -1;
   return wait(p);
 }
@@ -44,10 +45,10 @@ sys_sbrk(void)
   int addr;
   int n;
 
-  if(argint(0, &n) < 0)
+  if (argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
-  if(growproc(n) < 0)
+  if (growproc(n) < 0)
     return -1;
   return addr;
 }
@@ -58,12 +59,14 @@ sys_sleep(void)
   int n;
   uint ticks0;
 
-  if(argint(0, &n) < 0)
+  if (argint(0, &n) < 0)
     return -1;
   acquire(&tickslock);
   ticks0 = ticks;
-  while(ticks - ticks0 < n){
-    if(myproc()->killed){
+  while (ticks - ticks0 < n)
+  {
+    if (myproc()->killed)
+    {
       release(&tickslock);
       return -1;
     }
@@ -78,7 +81,7 @@ sys_kill(void)
 {
   int pid;
 
-  if(argint(0, &pid) < 0)
+  if (argint(0, &pid) < 0)
     return -1;
   return kill(pid);
 }
@@ -94,4 +97,42 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+uint64 sys_trace(void)
+{
+  int mask;
+  if (argint(0, &mask) < 0) // 这里不太明白从哪里读的
+  {
+    return -1;
+  }
+  // set trace mask
+  struct proc *p = myproc();
+  p->trace_mask = mask;
+
+  return 0;
+}
+
+extern uint64 get_free_memory(void);
+extern uint64 get_used_process(void);
+
+uint64 sys_sysinfo(void)
+{
+  uint64 info;
+  struct sysinfo p_sysinfo;
+  struct proc *p = myproc();
+
+  if (argaddr(0, &info) < 0)
+  {
+    return -1;
+  }
+
+  p_sysinfo.freemem = get_free_memory();
+  p_sysinfo.nproc = get_used_process();
+
+  if (copyout(p->pagetable, info, (char *)&p_sysinfo, sizeof(p_sysinfo)) < 0)
+  {
+    return -1;
+  }
+  return 0;
 }
