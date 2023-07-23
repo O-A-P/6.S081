@@ -27,6 +27,7 @@ void procinit(void)
   struct proc *p;
 
   initlock(&pid_lock, "nextpid");
+  // 有多少进程就预留多少个内核栈，每个内核栈都被保护空间包围
   for (p = proc; p < &proc[NPROC]; p++)
   {
     initlock(&p->lock, "proc");
@@ -37,6 +38,8 @@ void procinit(void)
     char *pa = kalloc();
     if (pa == 0)
       panic("kalloc");
+    // 这里返回的是va，即根据sv39标准的地址最大值，实际上是被映射到pa中
+    // 且返回的va大小实际上是两页，但kvmmap只map一页，因此存在一页无效值即guard page
     uint64 va = KSTACK((int)(p - proc));
     kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
     p->kstack = va;

@@ -50,6 +50,7 @@ void kvminit()
 // and enable paging.
 void kvminithart()
 {
+  // 把kernel_pagetable写入satp寄存器里
   w_satp(MAKE_SATP(kernel_pagetable));
   sfence_vma();
 }
@@ -71,22 +72,28 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
 {
   if (va >= MAXVA)
     panic("walk");
-
+  // 找两次，第一次默认的pagetable是satp寄存器中存的数据
   for (int level = 2; level > 0; level--)
   {
+    // level = 2：第一级的pagetable是satp寄存器中的值，是虚拟内存页的地址，这里返回的是第一个pte的地址
+    // level = 1：如果是正常寻找pa那没问题，但如果是分配的话，其实第二层和第三层都是存在level2时分配的实际物理内存里，如果第一层的ptev是有效的那就还是正常寻址，否则就是分配
     pte_t *pte = &pagetable[PX(level, va)];
     if (*pte & PTE_V)
     {
+      // pte的ptev是0则证明并非是va->pa而是分配分支
       pagetable = (pagetable_t)PTE2PA(*pte);
     }
     else
     {
+      // 用于分配新的page，pagetable此时是物理页地址
       if (!alloc || (pagetable = (pde_t *)kalloc()) == 0)
         return 0;
       memset(pagetable, 0, PGSIZE);
+      // 把物理页地址转换成了一个pte并且存到了第一级的page table中
       *pte = PA2PTE(pagetable) | PTE_V;
     }
   }
+  // 找最后一次，返回的是pte的地址
   return &pagetable[PX(0, va)];
 }
 
@@ -109,7 +116,7 @@ walkaddr(pagetable_t pagetable, uint64 va)
     return 0;
   if ((*pte & PTE_U) == 0)
     return 0;
-  pa = PTE2PA(*pte);
+  pa = PTE2PA(*pte); // 这个实际地址还没有offset，offset还得在外层给！
   return pa;
 }
 
@@ -150,15 +157,17 @@ int mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 {
   uint64 a, last;
   pte_t *pte;
-
+  // 根据size来判断要分多少个page，永远记住是以page为单位来操作内存
   a = PGROUNDDOWN(va);
   last = PGROUNDDOWN(va + size - 1);
   for (;;)
   {
+    // 在该过程中alloc了两个4096大小的内核可以访问的物理page，分别作为二三层的page-table
     if ((pte = walk(pagetable, a, 1)) == 0)
       return -1;
     if (*pte & PTE_V)
       panic("remap");
+    // 最后一层pte的赋值
     *pte = PA2PTE(pa) | perm | PTE_V;
     if (a == last)
       break;
@@ -234,7 +243,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 
   if (newsz < oldsz)
     return oldsz;
-
+  // 最小的增长单位是一个page
   oldsz = PGROUNDUP(oldsz);
   for (a = oldsz; a < newsz; a += PGSIZE)
   {
@@ -361,13 +370,14 @@ void uvmclear(pagetable_t pagetable, uint64 va)
 int copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
-
+  // 防止复制粘贴量不够
   while (len > 0)
   {
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
     if (pa0 == 0)
       return -1;
+    // 目标地址中的剩余量未必够，那此时就需要“翻页”
     n = PGSIZE - (dstva - va0);
     if (n > len)
       n = len;

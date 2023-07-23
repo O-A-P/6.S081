@@ -27,13 +27,17 @@ struct
 
 void kinit()
 {
+  // 初始化内存自旋锁
   initlock(&kmem.lock, "kmem");
+  // 初始化物理内存并按页将其放到freelist链表中
   freerange(end, (void *)PHYSTOP);
 }
 
 void freerange(void *pa_start, void *pa_end)
 {
   char *p;
+  // 这里舍入pa_start的原因是要保证内存尽量是pageSize的倍数，不要东一块西一块的
+  // 而不舍入pa_end的原因是要保证物尽其用
   p = (char *)PGROUNDUP((uint64)pa_start);
   for (; p + PGSIZE <= (char *)pa_end; p += PGSIZE)
     kfree(p);
