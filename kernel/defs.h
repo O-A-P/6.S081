@@ -160,8 +160,12 @@ int             uartgetc(void);
 // vm.c
 
 void ukvmmap(pagetable_t kpt, uint64 va, uint64 pa, uint64 sz, int perm);
-int uvmkptcopy(pagetable_t old, pagetable_t new, uint64 oldsz, uint64 newsz);
+//int uvmkptcopy(pagetable_t old, pagetable_t new, uint64 oldsz, uint64 newsz);
+void uvmkptcopy(pagetable_t pagetable, pagetable_t kpagetable, uint64 oldsz, uint64 newsz);
 pagetable_t     get_kpt(void);
+
+int copyin_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len);
+int copyinstr_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max);
 
 void            kvminit(void);
 void            kvminithart(void);
