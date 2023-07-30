@@ -121,6 +121,23 @@ found:
     return 0;
   }
 
+  // 这里就相当于初始化了
+  p->kernel_pagetable = get_kpt();
+  if (p->kernel_pagetable == 0)
+  {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+  // 同时也整了块内存来放kstack，这个kstack实际上是自己的
+  char *pa = kalloc();
+  if (pa == 0)
+    panic("allocproc: kalloc");
+  uint64 va = KSTACK((int)(p - proc));
+  ukvmmap(p->kernel_pagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  // 这个时候p->kstack指的就是kpt中的地址了
+  p->kstack = va;
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -129,7 +146,28 @@ found:
 
   return p;
 }
-
+void proc_freekpt(pagetable_t kpt)
+{
+  // kpt中有什么需要被free的？
+  // 无非是之前map的pa，但pa又不是freelist管理的，因此没有必要去清除
+  for (int i = 0; i < 512; i++)
+  {
+    pte_t pte = kpt[i];
+    // 该pte是有效的，可以被访问
+    if (pte & PTE_V)
+    {
+      kpt[i] = 0;
+      // 这代表当前页表项b
+      if ((pte & (PTE_R | PTE_W | PTE_X)) == 0)
+      {
+        uint64 child = PTE2PA(pte);
+        proc_freekpt((pagetable_t)child);
+      }
+    }
+  }
+  kfree((void *)kpt);
+}
+extern pte_t *walk(pagetable_t pagetable, uint64 va, int alloc);
 // free a proc structure and the data hanging from it,
 // including user pages.
 // p->lock must be held.
@@ -139,8 +177,18 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  // 删除kernel stack
+  if (p->kstack)
+  {
+    pte_t *pte = walk(p->kernel_pagetable, p->kstack, 0);
+    if (pte == 0)
+      panic("freeproc: kstack");
+    kfree((void *)PTE2PA(*pte));
+  }
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+  if (p->kernel_pagetable)
+    proc_freekpt(p->kernel_pagetable);
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -445,7 +493,7 @@ wait(uint64 addr)
     sleep(p, &p->lock);  //DOC: wait-sleep
   }
 }
-
+extern pagetable_t kernel_pagetable;
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -473,6 +521,8 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        w_satp(MAKE_SATP(p->kernel_pagetable));
+        sfence_vma();
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
@@ -486,6 +536,8 @@ scheduler(void)
 #if !defined (LAB_FS)
     if(found == 0) {
       intr_on();
+      w_satp(MAKE_SATP(kernel_pagetable));
+      sfence_vma();
       asm volatile("wfi");
     }
 #else

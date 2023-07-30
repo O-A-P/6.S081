@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -14,6 +16,31 @@ pagetable_t kernel_pagetable;
 extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
+
+// map kernel pagetable per process with pa
+void ukvmmap(pagetable_t kpt, uint64 va, uint64 pa, uint64 sz, int perm)
+{
+  if (mappages(kpt, va, sz, pa, perm) != 0)
+    panic("ukvmmap");
+}
+
+// get kernel pagetable per process
+pagetable_t get_kpt()
+{
+  pagetable_t kpt = (pagetable_t) kalloc();
+  if (kpt == 0) {
+    return 0;
+  }
+  memset(kpt, 0, PGSIZE);
+  ukvmmap(kpt, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+  ukvmmap(kpt, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+  ukvmmap(kpt, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  ukvmmap(kpt, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+  ukvmmap(kpt, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+  ukvmmap(kpt, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+  ukvmmap(kpt, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+  return kpt;
+}
 
 /*
  * create a direct-map page table for the kernel.
@@ -132,7 +159,7 @@ kvmpa(uint64 va)
   pte_t *pte;
   uint64 pa;
   
-  pte = walk(kernel_pagetable, va, 0);
+  pte = walk(myproc()->kernel_pagetable, va, 0);
   if(pte == 0)
     panic("kvmpa");
   if((*pte & PTE_V) == 0)
