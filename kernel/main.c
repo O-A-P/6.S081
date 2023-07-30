@@ -47,6 +47,6 @@ main()
     trapinithart();   // install kernel trap vector
     plicinithart();   // ask PLIC for device interrupts
   }
-
+  // 在userinit设置好第一段程序的数据后开始进行进程调度
   scheduler();        
 }

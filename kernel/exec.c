@@ -75,6 +75,13 @@ exec(char *path, char **argv)
   sp = sz;
   stackbase = sp - PGSIZE;
 
+//  if (sz > PLIC) {
+//    proc_freepagetable(oldpagetable, oldsz);
+//    proc_freepagetable(p->pagetable, p->sz);
+//    panic("exec");
+//  }
+  uvmkptcopy(p->pagetable, p->kernel_pagetable,0 , sz);
+
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {
     if(argc >= MAXARG)

@@ -20,11 +20,15 @@ static void wakeup1(struct proc *chan);
 static void freeproc(struct proc *p);
 
 extern char trampoline[]; // trampoline.S
+extern pagetable_t kernel_pagetable;
 
 // initialize the proc table at boot time.
 void
 procinit(void)
 {
+  // 这时候需要做的就是需要在kernel_page_table的高位地址映射到freelist管理的物理内存中
+  // 那为什么之前的kvminit不需要先申请一页呢？
+  // 猜想可能是因为物理地址映射没什么意义
   struct proc *p;
   
   initlock(&pid_lock, "nextpid");
@@ -41,6 +45,7 @@ procinit(void)
       kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
       p->kstack = va;
   }
+  // 这里的首要目的应该是为了刷新TLB
   kvminithart();
 }
 
@@ -121,6 +126,21 @@ found:
     return 0;
   }
 
+  // 这里就相当于初始化了
+  p->kernel_pagetable = get_kpt();
+  if(p->kernel_pagetable == 0) {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+  // 同时也整了块内存来放kstack，这个kstack实际上是自己的
+  char *pa = kalloc();
+  if(pa == 0)
+    panic("allocproc: kalloc");
+  uint64 va = KSTACK((int) (p - proc));
+  ukvmmap(p->kernel_pagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  // 这个时候p->kstack指的就是kpt中的地址了
+  p->kstack = va;
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -129,6 +149,27 @@ found:
 
   return p;
 }
+
+
+void proc_freekpt(pagetable_t kpt)
+{
+  // kpt中有什么需要被free的？
+  // 无非是之前map的pa，但pa又不是freelist管理的，因此没有必要去清除
+  for(int i = 0; i < 512; i++) {
+    pte_t pte = kpt[i];
+    // 该pte是有效的，可以被访问
+    if (pte & PTE_V) {
+      kpt[i] = 0;
+      // 这代表当前页表项b
+      if ((pte & (PTE_R | PTE_W | PTE_X)) == 0) {
+        uint64 child = PTE2PA(pte);
+        proc_freekpt((pagetable_t)child);
+      }
+    }
+  }
+  kfree((void*) kpt);
+}
+extern pte_t *walk(pagetable_t pagetable, uint64 va, int alloc);
 
 // free a proc structure and the data hanging from it,
 // including user pages.
@@ -139,8 +180,17 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  // 删除kernel stack
+  if (p->kstack) {
+    pte_t* pte = walk(p->kernel_pagetable, p->kstack, 0);
+    if (pte == 0)
+      panic("freeproc: kstack");
+    kfree((void*)PTE2PA(*pte));
+  }
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+  if(p->kernel_pagetable)
+    proc_freekpt(p->kernel_pagetable);
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -170,6 +220,7 @@ proc_pagetable(struct proc *p)
   // to/from user space, so not PTE_U.
   if(mappages(pagetable, TRAMPOLINE, PGSIZE,
               (uint64)trampoline, PTE_R | PTE_X) < 0){
+    // 这里是出问题的情况，暂时不看
     uvmfree(pagetable, 0);
     return 0;
   }
@@ -177,6 +228,7 @@ proc_pagetable(struct proc *p)
   // map the trapframe just below TRAMPOLINE, for trampoline.S.
   if(mappages(pagetable, TRAPFRAME, PGSIZE,
               (uint64)(p->trapframe), PTE_R | PTE_W) < 0){
+    // 同理出问题则free
     uvmunmap(pagetable, TRAMPOLINE, 1, 0);
     uvmfree(pagetable, 0);
     return 0;
@@ -190,8 +242,12 @@ proc_pagetable(struct proc *p)
 void
 proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
+  // 最后一个参数为0
+  // 只删除pagetable中的两个pte数据，不free
+  // 所有user space的TRAMPOLINE和TRAMFRAME都是相同的
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  // free pagetable内的与其相连的所有物理地址，并删除所有pte
   uvmfree(pagetable, sz);
 }
 
@@ -218,16 +274,18 @@ userinit(void)
   
   // allocate one user page and copy init's instructions
   // and data into it.
+  // 这里就是把initcode即机器码文件放进了va的初始位置
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
-
+//  uvmkptcopy(p->pagetable, p->kernel_pagetable, 0, p->sz);
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
+  // 设置初始进程的当前目录
   p->cwd = namei("/");
-
+  // 将进程状态设置为RUNNABLE，CPU就会在下次调度的时候调用，因为此时只有一个进程
   p->state = RUNNABLE;
 
   release(&p->lock);
@@ -243,9 +301,13 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
+    if (PGROUNDUP(sz + n) > PLIC) {
+      panic("growproc");
+    }
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+//    uvmkptcopy(p->pagetable, p->kernel_pagetable, sz - n, sz);
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
@@ -290,6 +352,20 @@ fork(void)
   np->cwd = idup(p->cwd);
 
   safestrcpy(np->name, p->name, sizeof(p->name));
+  // 在这里要把pagetable的mappings加到kernel pagetable中
+//  if(p->sz > PLIC) {
+//    // size 太大，得报错一下
+//    freeproc(np);
+//    release(&np->lock);
+//    panic("fork");
+//    return -1;
+//  }
+//  if(uvmkptcopy(np->pagetable, np->kernel_pagetable, 0, p->sz) < 0){
+//    freeproc(np);
+//    release(&np->lock);
+//    panic("fork");
+//    return -1;
+//  }
 
   pid = np->pid;
 
@@ -461,6 +537,7 @@ scheduler(void)
   
   c->proc = 0;
   for(;;){
+//      此后CPU一直在此处循环运行，直到找到能够运行的进程就去中断运行
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
     
@@ -473,6 +550,8 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        w_satp(MAKE_SATP(p->kernel_pagetable));
+        sfence_vma();
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
@@ -486,6 +565,8 @@ scheduler(void)
 #if !defined (LAB_FS)
     if(found == 0) {
       intr_on();
+      w_satp(MAKE_SATP(kernel_pagetable));
+      sfence_vma();
       asm volatile("wfi");
     }
 #else
