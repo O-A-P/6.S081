@@ -187,6 +187,7 @@ freeproc(struct proc *p)
   }
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+  // 删除kernel pagetable
   if (p->kernel_pagetable)
     proc_freekpt(p->kernel_pagetable);
   p->pagetable = 0;

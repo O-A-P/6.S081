@@ -41,6 +41,38 @@ pagetable_t get_kpt()
   ukvmmap(kpt, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
   return kpt;
 }
+void vmprint_recursively(pagetable_t pagetable, int depth)
+{
+  for (int i = 0; i < 512; i++)
+  {
+    pte_t pte = pagetable[i];
+    if (pte & PTE_V)
+    {
+      for (int j = 0; j < depth; j++)
+      {
+        if (j == 0)
+        {
+          printf("..");
+        }
+        else
+        {
+          printf(" ..");
+        }
+      }
+      printf("%d: pte %p pa %p\n", i, pte, PTE2PA(pte));
+      if ((pte & (PTE_R | PTE_W | PTE_X)) == 0)
+      {
+        vmprint_recursively((pagetable_t)PTE2PA(pte), depth + 1);
+      }
+    }
+  }
+}
+
+void vmprint(pagetable_t pagetable)
+{
+  printf("page table %p\n", pagetable);
+  vmprint_recursively(pagetable, 1);
+}
 
 /*
  * create a direct-map page table for the kernel.
