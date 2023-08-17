@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "*.c": "c",
+        "*.cpp": "cpp",
+        "stat.h": "c",
+        "proc.h": "c",
+        "riscv.h": "c",
+        "file.h": "c",
+        "types.h": "c"
+    }
+}

@@ -9,6 +9,7 @@
 .align 4
 kernelvec:
         // make room to save registers.
+        // 搞个256字节的空余出来，因为栈是向下增长的，所以要减而非加
         addi sp, sp, -256
 
         // save the registers.

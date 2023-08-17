@@ -4,8 +4,8 @@
         # this code is mapped at the same virtual address
         # (TRAMPOLINE) in user and kernel space so that
         # it continues to work when it switches page tables.
-	#
-	# kernel.ld causes this to be aligned
+	    #
+	    # kernel.ld causes this to be aligned
         # to a page boundary.
         #
 	.section trampsec
@@ -14,7 +14,7 @@ trampoline:
 .align 4
 .globl uservec
 uservec:    
-	#
+	    #
         # trap.c sets stvec to point here, so
         # traps from user space start here,
         # in supervisor mode, but with a
@@ -24,10 +24,14 @@ uservec:
         # mapped into user space, at TRAPFRAME.
         #
         
-	# swap a0 and sscratch
+	    # swap a0 and sscratch
         # so that a0 is TRAPFRAME
-        csrrw a0, sscratch, a0
 
+        # sscratch里的是process的trapframe地址
+        # 交换后a0内的地址是用户地址的trapframe
+        # 而sscratch则是a0寄存器原有的数据
+        csrrw a0, sscratch, a0
+        # 将原来的寄存器数据都保存至用户空间内的TRAPFRAME中，用于将来恢复
         # save the user registers in TRAPFRAME
         sd ra, 40(a0)
         sd sp, 48(a0)
@@ -60,26 +64,33 @@ uservec:
         sd t5, 272(a0)
         sd t6, 280(a0)
 
-	# save the user a0 in p->trapframe->a0
+	    # save the user a0 in p->trapframe->a0（这里的确可以这样子写，想想结构体内存对齐）
+        # 将sscratch寄存器中的a0值放到t0寄存器（因为t0寄存器的内容已经被保存了）
         csrr t0, sscratch
+        # 将t0的值放到偏移地址为112的位置
         sd t0, 112(a0)
 
         # restore kernel stack pointer from p->trapframe->kernel_sp
+        # 提取这个进程对应内核中的stack pointer
         ld sp, 8(a0)
 
         # make tp hold the current hartid, from p->trapframe->kernel_hartid
+        # hartid
         ld tp, 32(a0)
 
         # load the address of usertrap(), p->trapframe->kernel_trap
+        # 拿到usertrap
         ld t0, 16(a0)
 
         # restore kernel page table from p->trapframe->kernel_satp
+        # 拿到kernel page table并且将其赋给satp寄存器中，清除TLB缓存
         ld t1, 0(a0)
         csrw satp, t1
         sfence.vma zero, zero
 
         # a0 is no longer valid, since the kernel page
         # table does not specially map p->tf.
+        # 这里的trapframe在内核的页表中是不存在的，因为trapframe是每个内存独有的
 
         # jump to usertrap(), which does not return
         jr t0
@@ -133,7 +144,7 @@ userret:
         ld t5, 272(a0)
         ld t6, 280(a0)
 
-	# restore user a0, and save TRAPFRAME in sscratch
+	    # restore user a0, and save TRAPFRAME in sscratch
         csrrw a0, sscratch, a0
         
         # return to user mode and user pc.

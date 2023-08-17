@@ -9,6 +9,8 @@ start:
         la a0, init
         la a1, argv
         li a7, SYS_exec
+        # 在此处会跳转至trampoline的代码来保存现场
+        # 触发一个异常，然后由trampoline的代码来处理
         ecall
 
 # for(;;) exit();
