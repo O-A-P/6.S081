@@ -8,6 +8,10 @@ _entry:
         # stack0 is declared in start.c,
         # with a 4096-byte stack per CPU.
         # sp = stack0 + (hartid * 4096)
+        # 这里就是把sp指针指向一块特定的内存（栈）
+        # 保证栈和代码段不冲突即可
+        # 这样所有入栈出栈都会在这块内存里进行
+        # 这个栈是每个CPU都会有一页
         la sp, stack0
         li a0, 1024*4
 	csrr a1, mhartid

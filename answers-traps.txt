@@ -1,0 +1,8 @@
+1.  a0 a1 a2, a2 contains 13
+2.  Acctually compiler inline it and calculate it out
+3.  630
+4.  the address of current instruction plus 4
+5.  HE110 World
+    0x726c640000000000
+    no, i don't need to
+6. a random number in register a2
