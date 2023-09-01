@@ -26,9 +26,16 @@ static struct
 
 static char digits[] = "0123456789abcdef";
 
-static void
-backtrace(void)
+void backtrace(void)
 {
+  // current fp, fp contains the top fp address
+  uint64 fp = r_fp();
+//  printf("fp is:", fp);
+  while(fp != PGROUNDUP(fp))
+  {
+    printf("%p\n",*((uint64*)(fp - 8)));
+    fp = *((uint64 *)(fp - 16));
+  }
 }
 
 static void
@@ -129,6 +136,7 @@ void panic(char *s)
   printf("panic: ");
   printf(s);
   printf("\n");
+  backtrace();
   panicked = 1; // freeze uart output from other CPUs
   for (;;)
     ;
