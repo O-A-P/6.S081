@@ -78,8 +78,22 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
-    yield();
+  {
+    // the alarm is set
+    if (p->ticks != 0)
+    {
+      p->ticks_to_last++;
+      if (p->ticks_to_last == p->ticks)
+      {
+        // store the state
+        p->trapframe_for_sig = *p->trapframe;
 
+        // let user app invoke handler
+        p->trapframe->epc = p->handler;
+      }
+    }
+    yield();
+  }
   usertrapret();
 }
 

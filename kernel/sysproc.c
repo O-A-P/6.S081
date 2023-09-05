@@ -96,3 +96,25 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+
+uint64
+sys_sigalarm(void)
+{
+  struct proc* p = myproc();
+  // get interval and handler, store it to proc struct
+  argint(0, &p->ticks);
+  argaddr(1, &p->handler);
+  return 0;
+}
+
+uint64
+sys_sigreturn(void)
+{
+  struct proc* p = myproc();
+  *p->trapframe = p->trapframe_for_sig;
+//  p->trapframe->epc += 4;
+  p->ticks_to_last = 0;
+
+  return 0;
+}
