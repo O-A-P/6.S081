@@ -81,6 +81,8 @@ void            printf(char*, ...);
 void            panic(char*) __attribute__((noreturn));
 void            printfinit(void);
 
+void            vmprint(pagetable_t pagetable);
+
 // proc.c
 int             cpuid(void);
 void            exit(int);
