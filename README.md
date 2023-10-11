@@ -6,3 +6,5 @@
   * syscall:lab2
   * pgtbl:lab3
   * pgtbl-comments:配上一些注释，解释一些代码是怎么运行的
+  * traps:lab4
+  * lazy:lab5
