@@ -5,6 +5,7 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
 
 /*
  * the kernel's page table.
@@ -14,6 +15,68 @@ pagetable_t kernel_pagetable;
 extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
+
+extern pte_t* walk(pagetable_t pagetable, uint64 va, int alloc);
+extern int get_mem_ref(uint64 pa);
+
+int
+cow_check(pagetable_t pagetable, uint64 va)
+{
+  if(va > MAXVA)
+    return 0;
+
+  pte_t *pte = walk(pagetable, va, 0);
+  if(pte == 0)
+  {
+    printf("fuck");
+    return 0;
+  }
+  if(((*pte) & (PTE_V)) == 0)
+    return 0;
+  int res = (*pte) & (PTE_COW);
+  return res;
+}
+
+uint64
+cow_copy(pagetable_t pagetable, uint64 va)
+{
+  if(cow_check(pagetable, va) == 0)
+    return 0;
+
+  va = PGROUNDDOWN(va);
+  pte_t *pte = walk(pagetable, va, 0);
+  uint64 pa = PTE2PA(*pte);
+
+  if(get_mem_ref(pa) == 1)
+  {
+    *pte = (*pte) & (~PTE_COW);
+    *pte = (*pte) | (PTE_W);
+    return pa;
+  }
+  else
+  {
+    char *mem = kalloc();
+    if(mem == 0){
+      return 0;
+    }
+
+    memmove(mem, (char *)pa, PGSIZE);
+    *pte = (*pte) & (~PTE_V);
+    uint64 flag = PTE_FLAGS(*pte);
+    flag = flag | PTE_W;
+    flag = flag & (~PTE_COW);
+
+    if(mappages(pagetable, va, PGSIZE, (uint64)mem, flag) != 0)
+    {
+      kfree(mem);
+      return 0;
+    }
+    // decrease it!
+    kfree((char*)PGROUNDDOWN(pa));
+
+    return (uint64)mem;
+  }
+}
 
 /*
  * create a direct-map page table for the kernel.
@@ -305,13 +368,51 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // physical memory.
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
+// int
+// uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+// {
+//   pte_t *pte;
+//   uint64 pa, i;
+//   uint flags;
+//   char *mem;
+//
+//   for(i = 0; i < sz; i += PGSIZE){
+//     if((pte = walk(old, i, 0)) == 0)
+//       panic("uvmcopy: pte should exist");
+//     if((*pte & PTE_V) == 0)
+//       panic("uvmcopy: page not present");
+//     pa = PTE2PA(*pte);
+//     flags = PTE_FLAGS(*pte);
+//     if((mem = kalloc()) == 0)
+//       goto err;
+//     memmove(mem, (char*)pa, PGSIZE);
+//     if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+//       kfree(mem);
+//       goto err;
+//     }
+//   }
+//   return 0;
+//
+//  err:
+//   uvmunmap(new, 0, i / PGSIZE, 1);
+//   return -1;
+// }
+
+
+// extern struct mem_ref;
+extern struct mem_ref {
+    struct spinlock lock;
+    int cnt;
+} mem_ref[];
+
+// cow fork
 int
 uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  // char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -319,14 +420,21 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
+    // record at RSW to tell whether a PTE is COW mapping
+    // modify old pagetable's pte to clear PET_W in parent and child
+    *pte &= ~PTE_W;
+    *pte |= PTE_COW;
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+
+    // in cow fork, we don't allocate memory for copying
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
+      // and don't free any memory
       goto err;
     }
+    // increase the reference count
+    acquire(&(mem_ref[pa/PGSIZE].lock));
+    mem_ref[(uint64)pa/PGSIZE].cnt++;
+    release(&(mem_ref[pa/PGSIZE].lock));
   }
   return 0;
 
@@ -364,6 +472,13 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
+    if (cow_check(pagetable, va0) != 0)
+    {
+      // pa0 must be returned
+      pa0 = cow_copy(pagetable, va0);
+    }
+    if(pa0 == 0)
+      return -1;
     memmove((void *)(pa0 + (dstva - va0)), src, n);
 
     len -= n;

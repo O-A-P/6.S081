@@ -15,6 +15,8 @@ extern char trampoline[], uservec[], userret[];
 void kernelvec();
 
 extern int devintr();
+extern pte_t* walk(pagetable_t pagetable, uint64 va, int alloc);
+extern int get_mem_ref(uint64 pa);
 
 void
 trapinit(void)
@@ -28,6 +30,8 @@ trapinithart(void)
 {
   w_stvec((uint64)kernelvec);
 }
+
+extern uint64 cow_copy(pagetable_t pagetable, uint64 va);
 
 //
 // handle an interrupt, exception, or system call from user space.
@@ -67,7 +71,46 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  } else if (r_scause() == 15 || r_scause() == 13) {
+    // cow page fault handler
+    uint64 va = r_stval();
+    if (cow_copy(p->pagetable, va) == 0)
+    {
+      p->killed = 1;
+    }
+    // va = PGROUNDDOWN(va);
+    // uint64 pa = walkaddr(p->pagetable, va);
+    // pte_t *pte = walk(p->pagetable, va, 0);
+    //
+    // if (get_mem_ref(pa) == 1)
+    // {
+    //   // 如果某个进程访问页面，此时还是发生缺页中断，则只需要更改标志位即可
+    //   // 此时意味着没有进程与其共享
+    //   *pte &= (~PTE_COW);
+    //   *pte |= (PTE_W);
+    // } else {
+    //   // allocate new memory
+    //   char* npa = kalloc();
+    //   // *pte = (*pte) & (~PTE_V);
+    //   uint flags = (PTE_FLAGS(*pte) | PTE_W) & (~PTE_COW);
+    //
+    //   if (npa == 0 || pa == 0)
+    //   {
+    //     p->killed = 1;
+    //   }
+    //   // defer allocating and copying at here
+    //   memmove(npa, (char *)pa, PGSIZE);
+    //   // unmap the old page
+    //   uvmunmap(p->pagetable, PGROUNDDOWN(va), 1, 1);
+    //   if (mappages(p->pagetable, va, PGSIZE, (uint64)npa, flags) != 0){
+    //     kfree(npa);
+    //     p->killed = 1;
+    //   }
+    //   // decrease the count
+    //   kfree((char*)PGROUNDDOWN(pa));
+    // }
+  }
+  else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
