@@ -5,8 +5,7 @@
 char buf[512];
 
 void
-cat(int fd)
-{
+cat(int fd){
   int n;
 
   while((n = read(fd, buf, sizeof(buf))) > 0) {
