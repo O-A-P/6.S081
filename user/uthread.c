@@ -11,10 +11,29 @@
 #define MAX_THREAD  4
 
 
+struct context {
+    uint64 ra;
+    uint64 sp;
+
+    // callee-saved
+    uint64 s0;
+    uint64 s1;
+    uint64 s2;
+    uint64 s3;
+    uint64 s4;
+    uint64 s5;
+    uint64 s6;
+    uint64 s7;
+    uint64 s8;
+    uint64 s9;
+    uint64 s10;
+    uint64 s11;
+};
+
 struct thread {
   char       stack[STACK_SIZE]; /* the thread's stack */
   int        state;             /* FREE, RUNNING, RUNNABLE */
-
+  struct context context;
 };
 struct thread all_thread[MAX_THREAD];
 struct thread *current_thread;
@@ -28,7 +47,7 @@ thread_init(void)
   // save thread 0's state.  thread_schedule() won't run the main thread ever
   // again, because its state is set to RUNNING, and thread_schedule() selects
   // a RUNNABLE thread.
-  current_thread = &all_thread[0];
+  current_thread = &all_thread[0];    // 主线程控制
   current_thread->state = RUNNING;
 }
 
@@ -39,7 +58,7 @@ thread_schedule(void)
 
   /* Find another runnable thread. */
   next_thread = 0;
-  t = current_thread + 1;
+  t = current_thread + 1;     // 跳过第0个开始找
   for(int i = 0; i < MAX_THREAD; i++){
     if(t >= all_thread + MAX_THREAD)
       t = all_thread;
@@ -63,6 +82,9 @@ thread_schedule(void)
      * Invoke thread_switch to switch from t to next_thread:
      * thread_switch(??, ??);
      */
+    // 第一次执行时，就会保存main这个调度线程的寄存器数据到context中
+    // 并把下一个可以运行的线程的数据从context中恢复
+    thread_switch((uint64)&t->context, (uint64)&current_thread->context);
   } else
     next_thread = 0;
 }
@@ -75,8 +97,12 @@ thread_create(void (*func)())
   for (t = all_thread; t < all_thread + MAX_THREAD; t++) {
     if (t->state == FREE) break;
   }
+  // 找到了空闲线程后赋值为RUNNABLE
   t->state = RUNNABLE;
   // YOUR CODE HERE
+  // 在sp寄存器中存储正确的栈指针位置（栈顶到栈底）
+  t->context.sp = (uint64)t->stack + STACK_SIZE;
+  t->context.ra = (uint64)func;
 }
 
 void 
@@ -152,8 +178,11 @@ thread_c(void)
 int 
 main(int argc, char *argv[]) 
 {
+  // 三个用户线程是否开始了
   a_started = b_started = c_started = 0;
+  // 线程执行的次数
   a_n = b_n = c_n = 0;
+  // 初始化第一个线程
   thread_init();
   thread_create(thread_a);
   thread_create(thread_b);
