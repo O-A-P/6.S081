@@ -101,7 +101,7 @@ thread_create(void (*func)())
   t->state = RUNNABLE;
   // YOUR CODE HERE
   // 在sp寄存器中存储正确的栈指针位置（栈顶到栈底）
-  t->context.sp = (uint64)t->stack + STACK_SIZE;
+  t->context.sp = (uint64)t->stack + STACK_SIZE - 1;
   t->context.ra = (uint64)func;
 }
 
