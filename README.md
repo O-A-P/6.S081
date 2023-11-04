@@ -9,3 +9,4 @@
   * traps:lab4
   * lazy:lab5
   * cow:lab6
+  * thread:lab7
