@@ -4,14 +4,16 @@
 #include <assert.h>
 #include <pthread.h>
 
+// 线程数量
 static int nthread = 1;
 static int round = 0;
 
-struct barrier {
+struct barrier
+{
   pthread_mutex_t barrier_mutex;
   pthread_cond_t barrier_cond;
-  int nthread;      // Number of threads that have reached this round of the barrier
-  int round;     // Barrier round
+  int nthread; // Number of threads that have reached this round of the barrier
+  int round;   // Barrier round
 } bstate;
 
 static void
@@ -22,7 +24,7 @@ barrier_init(void)
   bstate.nthread = 0;
 }
 
-static void 
+static void
 barrier()
 {
   // YOUR CODE HERE
@@ -30,19 +32,37 @@ barrier()
   // Block until all threads have called barrier() and
   // then increment bstate.round.
   //
-  
+  pthread_mutex_lock(&bstate.barrier_mutex);
+  // 记录有多少个线程到达此处
+  bstate.nthread++;
+  // 一旦线程到达数量等于总数量，则进入下一轮
+  // 否则睡眠并等待
+  if (bstate.nthread == nthread)
+  {
+    bstate.nthread = 0;
+    bstate.round++;
+    pthread_cond_broadcast(&bstate.barrier_cond);
+  }
+  else
+  {
+    // 释放锁
+    pthread_cond_wait(&bstate.barrier_cond, &bstate.barrier_mutex);
+  }
+  pthread_mutex_unlock(&bstate.barrier_mutex);
 }
 
 static void *
 thread(void *xa)
 {
-  long n = (long) xa;
+  long n = (long)xa;
   long delay;
   int i;
 
-  for (i = 0; i < 20000; i++) {
+  for (i = 0; i < 20000; i++)
+  {
     int t = bstate.round;
-    assert (i == t);
+    // 是不是每次让所有线程都执行完后再进行下一轮循环？
+    assert(i == t);
     barrier();
     usleep(random() % 100);
   }
@@ -50,15 +70,15 @@ thread(void *xa)
   return 0;
 }
 
-int
-main(int argc, char *argv[])
+int main(int argc, char *argv[])
 {
   pthread_t *tha;
   void *value;
   long i;
   double t1, t0;
 
-  if (argc < 2) {
+  if (argc < 2)
+  {
     fprintf(stderr, "%s: %s nthread\n", argv[0], argv[0]);
     exit(-1);
   }
@@ -68,10 +88,12 @@ main(int argc, char *argv[])
 
   barrier_init();
 
-  for(i = 0; i < nthread; i++) {
-    assert(pthread_create(&tha[i], NULL, thread, (void *) i) == 0);
+  for (i = 0; i < nthread; i++)
+  {
+    assert(pthread_create(&tha[i], NULL, thread, (void *)i) == 0);
   }
-  for(i = 0; i < nthread; i++) {
+  for (i = 0; i < nthread; i++)
+  {
     assert(pthread_join(tha[i], &value) == 0);
   }
   printf("OK; passed\n");
