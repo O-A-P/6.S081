@@ -555,6 +555,7 @@ forkret(void)
 void
 sleep(void *chan, struct spinlock *lk)
 {
+  // lk是对某个共享资源的锁，p->lock则是对进程控制块的锁
   struct proc *p = myproc();
   
   // Must acquire p->lock in order to
@@ -572,11 +573,15 @@ sleep(void *chan, struct spinlock *lk)
   p->chan = chan;
   p->state = SLEEPING;
 
+  // 调度发生在此处，在此之前lk was released and p->lock is acquired
   sched();
+  // scheduler被恢复的时候被执行到这里
+
 
   // Tidy up.
   p->chan = 0;
 
+  // 这里最妙的就是会恢复在此处，此后再相互抢占lk，即进程间的共享资源
   // Reacquire original lock.
   if(lk != &p->lock){
     release(&p->lock);

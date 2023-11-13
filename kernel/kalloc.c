@@ -21,12 +21,17 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
-} kmem;
+} kmem[NCPU];
 
 void
 kinit()
 {
-  initlock(&kmem.lock, "kmem");
+  // for 初始化所有cpu内存锁
+  for (int i = 0; i < NCPU; i++) {
+    // 这里第二个就算了，懒得改了
+    initlock(&kmem[i].lock, "kmem");
+  }
+  // initlock(&kmem.lock, "kmem");
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -56,10 +61,17 @@ kfree(void *pa)
 
   r = (struct run*)pa;
 
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+  push_off();
+  // 获取cpuid
+  int id = cpuid();
+  // 根据cpuid获取锁
+  // 感觉没有必要获取锁了这里，又没有并发问题
+  // 妈的不对，仔细想想steal的时候会有并发问题。。
+  acquire(&kmem[id].lock);
+  r->next = kmem[id].freelist;
+  kmem[id].freelist = r;
+  release(&kmem[id].lock);
+  pop_off();
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -69,12 +81,36 @@ void *
 kalloc(void)
 {
   struct run *r;
+  // 这里需要思考一下，kfree一定能snyx
 
-  acquire(&kmem.lock);
-  r = kmem.freelist;
+  push_off();
+  int id = cpuid();
+
+
+  acquire(&kmem[id].lock);
+  r = kmem[id].freelist;
   if(r)
-    kmem.freelist = r->next;
-  release(&kmem.lock);
+    kmem[id].freelist = r->next;
+  else {
+    // 如果r已经空了就会很坏很坏
+    // 只能偷点
+    for(int i = 0; i < NCPU; i++) {
+      // 不要重复去搞
+      if(id == i) continue;
+      acquire(&kmem[i].lock);
+      if (kmem[i].freelist) {
+        // 如果别人的有货，就偷一片过来
+        r = kmem[i].freelist;
+        kmem[i].freelist = kmem[i].freelist->next;
+        release(&kmem[i].lock);
+        break;
+      }
+      release(&kmem[i].lock);
+    }
+  }
+  release(&kmem[id].lock);
+  pop_off();
+
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
