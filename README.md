@@ -1,5 +1,6 @@
 # 说明！
-6.s081学习备份仓库
+6.s081学习备份仓库，每个分支的commit message好像有点错误，lab8写成lab9，之前的应该也有错误，不过不影响！
+
 * branches:
   * main:书
   * util:lab1
@@ -10,3 +11,5 @@
   * lazy:lab5
   * cow:lab6
   * thread:lab7
+  * lock:lab8
+  * fs:lab9
