@@ -33,14 +33,14 @@
 // Contents of the header block, used for both the on-disk header block
 // and to keep track in memory of logged block# before commit.
 struct logheader {
-  int n;
-  int block[LOGSIZE];
+  int n;              // 单纯记录已经写的block数量
+  int block[LOGSIZE]; // 记录哪些block是需要被重新写入到硬盘的log区
 };
 
 struct log {
   struct spinlock lock;
-  int start;
-  int size;
+  int start;      // 起始位置
+  int size;       // 大小
   int outstanding; // how many FS sys calls are executing.
   int committing;  // in commit(), please wait.
   int dev;
@@ -58,10 +58,10 @@ initlog(int dev, struct superblock *sb)
     panic("initlog: too big logheader");
 
   initlock(&log.lock, "log");
-  log.start = sb->logstart;
+  log.start = sb->logstart; // superblock负责记录元数据
   log.size = sb->nlog;
   log.dev = dev;
-  recover_from_log();
+  recover_from_log(); // 恢复居然是由CPU来做
 }
 
 // Copy committed blocks from log to their home location
@@ -74,7 +74,9 @@ install_trans(int recovering)
     struct buf *lbuf = bread(log.dev, log.start+tail+1); // read log block
     struct buf *dbuf = bread(log.dev, log.lh.block[tail]); // read dst
     memmove(dbuf->data, lbuf->data, BSIZE);  // copy block to dst
+    // 在这里才真正把log block写入到真正的位置
     bwrite(dbuf);  // write dst to disk
+    // 如果不是recovering流程，unpin即可
     if(recovering == 0)
       bunpin(dbuf);
     brelse(lbuf);
@@ -86,6 +88,7 @@ install_trans(int recovering)
 static void
 read_head(void)
 {
+  // 如果crash了，那只能从disk获取head信息
   struct buf *buf = bread(log.dev, log.start);
   struct logheader *lh = (struct logheader *) (buf->data);
   int i;
@@ -131,9 +134,12 @@ begin_op(void)
     if(log.committing){
       sleep(&log, &log.lock);
     } else if(log.lh.n + (log.outstanding+1)*MAXOPBLOCKS > LOGSIZE){
+      // 这里outstanding记录的是目前已有系统调用数量
+      // 基于的假设是每个系统调用都会使用MAXOPBLOCKS
       // this op might exhaust log space; wait for commit.
       sleep(&log, &log.lock);
     } else {
+      // 相当于为这个系统调用的写blocks预留log空间
       log.outstanding += 1;
       release(&log.lock);
       break;
@@ -153,6 +159,7 @@ end_op(void)
   if(log.committing)
     panic("log.committing");
   if(log.outstanding == 0){
+    // 以组为单位提交！
     do_commit = 1;
     log.committing = 1;
   } else {
@@ -180,8 +187,11 @@ write_log(void)
 {
   int tail;
 
+  // 遍历所有标记的需要写入log的blocks
   for (tail = 0; tail < log.lh.n; tail++) {
+    // 从log block cache中获取buffer
     struct buf *to = bread(log.dev, log.start+tail+1); // log block
+    // 从正常的data block cache中获取buffer
     struct buf *from = bread(log.dev, log.lh.block[tail]); // cache block
     memmove(to->data, from->data, BSIZE);
     bwrite(to);  // write the log
@@ -223,11 +233,16 @@ log_write(struct buf *b)
 
   acquire(&log.lock);
   for (i = 0; i < log.lh.n; i++) {
+    // 如果block已经被标记
+    // 这时候什么都不用做
+    // buffer cache机制保证最后一次写的block在buffer里
     if (log.lh.block[i] == b->blockno)   // log absorbtion
       break;
   }
+  // 这里完成了标记
   log.lh.block[i] = b->blockno;
   if (i == log.lh.n) {  // Add new block to log?
+    // 保证该block缓冲区不会被释放
     bpin(b);
     log.lh.n++;
   }

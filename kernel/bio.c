@@ -5,7 +5,7 @@
 // in memory reduces the number of disk reads and also provides
 // a synchronization point for disk blocks used by multiple processes.
 //
-// Interface:
+// Interface:l
 // * To get a buffer for a particular disk block, call bread.
 // * After changing buffer data, call bwrite to write it to disk.
 // * When done with the buffer, call brelse.
@@ -139,6 +139,7 @@ brelse(struct buf *b)
 
 void
 bpin(struct buf *b) {
+  // pin一下，保证缓冲区不会在log前被释放
   acquire(&bcache.lock);
   b->refcnt++;
   release(&bcache.lock);
