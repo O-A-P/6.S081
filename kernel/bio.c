@@ -31,7 +31,7 @@ struct {
   // Sorted by how recently the buffer was used.
   // head.next is most recent, head.prev is least.
   struct buf head;
-} bcache;
+} bcache; // 管理block在内存中的缓存
 
 
 void
@@ -41,6 +41,7 @@ binit(void)
 
   initlock(&bcache.lock, "bcache");
 
+  // 创建一个双向循环链表
   // Create linked list of buffers
   bcache.head.prev = &bcache.head;
   bcache.head.next = &bcache.head;
@@ -112,6 +113,9 @@ bwrite(struct buf *b)
   virtio_disk_rw(b, 1);
 }
 
+
+// 当且仅当一块buffer被进程使用完毕后才会调用brelse
+
 // Release a locked buffer.
 // Move to the head of the most-recently-used list.
 void
@@ -123,7 +127,7 @@ brelse(struct buf *b)
   releasesleep(&b->lock);
 
   acquire(&bcache.lock);
-  b->refcnt--;
+  b->refcnt--;    // refcnt表示有多少进程需要使用该buffer，如果为0，就不再需要这块缓存了，真正写入还是靠log层
   if (b->refcnt == 0) {
     // no one is waiting for it.
     b->next->prev = b->prev;

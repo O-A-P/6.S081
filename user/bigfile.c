@@ -7,7 +7,7 @@
 int
 main()
 {
-  char buf[BSIZE];
+  char buf[BSIZE];// 五大囧我j
   int fd, i, blocks;
 
   fd = open("big.file", O_CREATE | O_WRONLY);

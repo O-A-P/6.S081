@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "*.c": "c",
+        "*.cpp": "cpp",
+        "types.h": "c",
+        "buf.h": "c",
+        "sleeplock.h": "c"
+    }
+}
