@@ -7,7 +7,7 @@
 struct file {
     enum {
         FD_NONE,
-        FD_PIPE, // pipe没必要到硬盘上去，但是可以抽象成file descriptor
+        FD_PIPE,  // pipe没必要到硬盘上去，但是可以抽象成file descriptor
         FD_INODE, // 这里的inode只会是目录和文件
         FD_DEVICE
     } type;
@@ -37,11 +37,9 @@ struct inode {
     short type; // copy of disk inode
     short major;
     short minor;
-    short
-        nlink; // 统计有多少文件目录引用到此inode以确定什么时候释放（硬盘上释放）
-    uint size; // 统计文件大小
-    uint addrs[NDIRECT +
-        1]; // 这个数组记录data blocks的number，毕竟inode大小是相同的
+    short nlink; // 统计有多少文件目录引用到此inode以确定什么时候释放（硬盘上释放）
+    uint size;   // 统计文件大小
+    uint addrs[NDIRECT + 2]; // 这个数组记录data blocks的number，毕竟inode大小是相同的
 };
 
 // map major device number to device functions.
