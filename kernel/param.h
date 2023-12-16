@@ -1,3 +1,5 @@
+#pragma once
+
 #ifdef LAB_FS
 #define NPROC        10  // maximum number of processes
 #else
