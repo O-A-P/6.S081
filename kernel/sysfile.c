@@ -92,6 +92,40 @@ uint64 sys_close(void) {
     return 0;
 }
 
+static struct inode* create(char* path, short type, short major, short minor);
+
+uint64 sys_symlink(void) {
+    // input: target & path
+    char target[MAXPATH], path[MAXPATH];
+
+    if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+        return -1;
+
+    begin_op();
+
+    struct inode* ip;
+    // 搞一个inode，类型是符号链接
+    // 内容则是真正链接的文件的路径，在此处即是target
+    // 在指定目录位置创建文件并返回inode，这里直接使用create函数，方便
+    // 注意，这里返回的ip是带锁的
+    if((ip = create(path, T_SYMLINK, 0, 0)) == 0) {
+        end_op();
+        return -1;
+    }
+    // 把真实文件path写入到此inode中
+    int res = writei(ip, 0, (uint64) target, 0, MAXPATH);
+
+    if(res != MAXPATH) {
+        end_op();
+        return -1;
+    }
+
+    iunlockput(ip);
+
+    end_op();
+    return 0;
+}
+
 uint64 sys_fstat(void) {
     struct file* f;
     uint64 st; // user pointer to struct stat
@@ -126,6 +160,7 @@ uint64 sys_link(void) {
     iupdate(ip);
     iunlock(ip);
 
+    // 从路径中获取新文件的名称
     if((dp = nameiparent(new, name)) == 0)
         goto bad;
     ilock(dp);
@@ -268,6 +303,7 @@ uint64 sys_open(void) {
     struct file* f;
     struct inode* ip;
     int n;
+    int count = 0; // 计算寻找次数
 
     if((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0)
         return -1;
@@ -281,11 +317,34 @@ uint64 sys_open(void) {
             return -1;
         }
     } else {
-        if((ip = namei(path)) == 0) {
-            end_op();
-            return -1;
+        while(1) {
+            if((ip = namei(path)) == 0) {
+                end_op();
+                return -1;
+            }
+            ilock(ip);
+
+            if(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)) {
+                // 递归地打开该符号链接，这里套个循环得了
+                if(count > 10) {
+                    iunlockput(ip);
+                    end_op();
+                    return -1;
+                }
+                int res;
+                res = readi(ip, 0, (uint64) path, 0, MAXPATH);
+                if(res != MAXPATH) {
+                    iunlockput(ip);
+                    end_op();
+                    return -1;
+                }
+                iunlockput(ip);
+                count++;
+            } else {
+                break;
+            }
         }
-        ilock(ip);
+
         if(ip->type == T_DIR && omode != O_RDONLY) {
             iunlockput(ip);
             end_op();
@@ -348,8 +407,7 @@ uint64 sys_mknod(void) {
     int major, minor;
 
     begin_op();
-    if((argstr(0, path, MAXPATH)) < 0 || argint(1, &major) < 0 ||
-        argint(2, &minor) < 0 ||
+    if((argstr(0, path, MAXPATH)) < 0 || argint(1, &major) < 0 || argint(2, &minor) < 0 ||
         (ip = create(path, T_DEVICE, major, minor)) == 0) {
         end_op();
         return -1;
@@ -441,8 +499,7 @@ uint64 sys_pipe(void) {
         return -1;
     }
     if(copyout(p->pagetable, fdarray, (char*) &fd0, sizeof(fd0)) < 0 ||
-        copyout(p->pagetable, fdarray + sizeof(fd0), (char*) &fd1,
-            sizeof(fd1)) < 0) {
+        copyout(p->pagetable, fdarray + sizeof(fd0), (char*) &fd1, sizeof(fd1)) < 0) {
         p->ofile[fd0] = 0;
         p->ofile[fd1] = 0;
         fileclose(rf);

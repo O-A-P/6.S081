@@ -185,7 +185,7 @@ static struct inode* iget(uint dev, uint inum);
 // Allocate an inode on device dev.
 // Mark it as allocated by  giving it type type.
 // Returns an unlocked but allocated and referenced inode.
-// 负责从硬盘中分配一个文件
+// 负责从硬盘中分配一个inode
 struct inode* ialloc(uint dev, short type) {
     int inum;
     struct buf* bp;
