@@ -408,7 +408,6 @@ static uint bmap(struct inode* ip, uint bn) {
     // 能到此处就确认是间接块了
     bn -= NDIRECT;
 
-    // 这里有bug：NINDIRECT为256，但实际上
     if(bn < NINDIRECT) {
         // Load indirect block, allocating if necessary.
         // 分配间接块
