@@ -52,6 +52,88 @@ fdalloc(struct file *f)
   return -1;
 }
 
+uint64 sys_mmap(void) {
+  uint64 error = 0xffffffffffffffff;
+
+  uint64 addr;
+  int length, prot, flags, fd, offset;
+  struct file *file;  // 根据fd获取
+
+  if (argaddr(0, &addr) || argint(1, &length) || argint(2, &prot) || argint(3, &flags) || argfd(4, &fd, &file) ||
+          argint(5, &offset)) {
+    return error;
+  }
+
+  // 这三种情况同时出现必错
+  if (!file->writable && (prot & PROT_WRITE) && flags == MAP_SHARED) {
+    return error;
+  }
+
+  length = PGROUNDUP(length);
+
+  struct proc* p = myproc();
+  // 剩余可用空间不足
+  if ((p->sz + length) > MAXVA) {
+    return error;
+  }
+
+  // 从进程PCB可用VMA中找个空位置插进去
+  // 这里不直接分配
+  for (int i = 0; i < VMASIZE; i++) {
+    if (p->vma[i].used == 0) {
+      p->vma[i].used = 1;
+      p->vma[i].addr = p->sz; // 不管给的地址是什么，都从现有位置开始增长
+      p->vma[i].length = length;
+      p->vma[i].prot = prot;
+      p->vma[i].flags = flags;
+      p->vma[i].fd = fd;
+      p->vma[i].file = file;
+      p->vma[i].offset = offset;
+      // pin一下这个file
+      filedup(file);
+      p->sz += length;
+      return p->vma[i].addr;
+    }
+  }
+  return error;
+}
+
+uint64 sys_munmap(void) {
+  uint64 addr;
+  int length;
+
+  struct proc *p = myproc();
+  struct vma *vma = 0;
+
+  if (argaddr(0, &addr) || argint(1, &length)) {
+    return -1;
+  }
+  addr = PGROUNDDOWN(addr);
+  length = PGROUNDUP(length);
+
+  // 找到对应的vma
+  for (int i = 0; i < VMASIZE; i++) {
+    if (addr >= p->vma[i].addr || addr < (p->vma[i].addr + p->vma[i].length)) {
+      vma = &p->vma[i];
+      break;
+    }
+  }
+  if (vma == 0) return -1;
+  // 这里很有趣，并没有全部都给删了，而是只删了申请的部分
+  if (vma->addr == addr) {
+    vma->addr += length;
+    vma->length -= length;
+    if (vma->flags & MAP_SHARED)
+      filewrite(vma->file, addr, length);
+    uvmunmap(p->pagetable, addr, length / PGSIZE, 1);
+    if (vma->length == 0) {
+      fileclose(vma->file);
+      vma->used = 0;
+    }
+  }
+  return 0;
+}
+
 uint64
 sys_dup(void)
 {
