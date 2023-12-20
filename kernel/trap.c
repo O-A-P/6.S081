@@ -19,6 +19,7 @@ struct file {
     short major;       // FD_DEVICE
 };
 
+// 哇的就哦啊我的激昂a
 
 struct spinlock tickslock;
 uint ticks;
