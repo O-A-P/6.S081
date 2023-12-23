@@ -184,6 +184,7 @@ uartintr(void)
     int c = uartgetc();
     if(c == -1)
       break;
+    // 这里是处理获取到的字符逻辑：回显并把数据传入内核buffer
     consoleintr(c);
   }
 

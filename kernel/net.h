@@ -1,6 +1,7 @@
 //
 // packet buffer management
 //
+#include "types.h"
 
 #define MBUF_SIZE              2048
 #define MBUF_DEFAULT_HEADROOM  128
@@ -9,6 +10,7 @@ struct mbuf {
   struct mbuf  *next; // the next mbuf in the chain
   char         *head; // the current start position of the buffer
   unsigned int len;   // the length of the buffer
+  // 分配的页面是4kb，但这里只能用上mbuf大小的内存，2kb多一点，因此在此处head指向的就是buf中可用内存！
   char         buf[MBUF_SIZE]; // the backing store
 };
 

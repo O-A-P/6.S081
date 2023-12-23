@@ -3,6 +3,8 @@
 // from the Intel 82540EP/EM &c manual.
 //
 
+#include "types.h"
+
 /* Registers */
 #define E1000_CTL      (0x00000/4)  /* Device Control Register - RW */
 #define E1000_ICR      (0x000C0/4)  /* Interrupt Cause Read - R */
@@ -115,8 +117,11 @@ struct tx_desc
 // [E1000 3.2.3]
 struct rx_desc
 {
+  // 存储接收数据的地址
   uint64 addr;       /* Address of the descriptor's data buffer */
+  // 已经使用的长度
   uint16 length;     /* Length of data DMAed into data buffer */
+  // 校验和
   uint16 csum;       /* Packet checksum */
   uint8 status;      /* Descriptor status */
   uint8 errors;      /* Descriptor Errors */

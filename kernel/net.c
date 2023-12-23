@@ -69,9 +69,11 @@ mbufalloc(unsigned int headroom)
  
   if (headroom > MBUF_SIZE)
     return 0;
+  // 这里分到的是一页 4kb
   m = kalloc();
   if (m == 0)
     return 0;
+  // next为零说明根本没用上
   m->next = 0;
   m->head = (char *)m->buf + headroom;
   m->len = 0;
